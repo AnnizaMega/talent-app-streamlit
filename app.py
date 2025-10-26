@@ -109,6 +109,7 @@ with engine.begin() as conn:
             "selected_ids": selected_ids,   # ✅ pass the list directly
         }
     ).scalar()
+    
         except Exception as e:
             st.error(f"Insert failed: {e}")
             st.stop()
