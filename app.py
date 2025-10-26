@@ -88,25 +88,27 @@ if submitted:
         array_literal = "{" + ",".join(f'"{x}"' for x in emp_ids) + "}"
 
         # --- insert benchmark & get id ---
-        insert_sql = text("""
-            INSERT INTO talent_benchmarks
-              (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
-            VALUES
-              (:role_name, :job_level, :role_purpose, :selected_ids::text[], '{}'::jsonb, now())
-            RETURNING job_vacancy_id;
-        """)
+        # 1) keep it as a plain list (DON'T json.dumps)
+selected_ids = [emp_options[k] for k in selected_people]   # ✅ a Python list, e.g. ["EMP001","EMP002"]
 
-        try:
-            with engine.begin() as conn:
-                new_id = conn.execute(
-                    insert_sql,
-                    {
-                        "role_name": (role_name or "").strip(),
-                        "job_level": (job_level or "").strip(),
-                        "role_purpose": (role_purpose or "").strip(),
-                        "selected_ids": array_literal,
-                    },
-                ).scalar()
+insert_sql = text("""
+    INSERT INTO talent_benchmarks
+      (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
+    VALUES
+      (:role_name, :job_level, :role_purpose, :selected_ids, '{}'::jsonb, now())   -- ✅ no cast, no ::
+    RETURNING job_vacancy_id;
+""")
+
+with engine.begin() as conn:
+    new_id = conn.execute(
+        insert_sql,
+        {
+            "role_name": role_name,
+            "job_level": job_level,
+            "role_purpose": role_purpose,
+            "selected_ids": selected_ids,   # ✅ pass the list directly
+        }
+    ).scalar()
         except Exception as e:
             st.error(f"Insert failed: {e}")
             st.stop()
