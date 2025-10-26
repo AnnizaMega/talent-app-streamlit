@@ -85,21 +85,31 @@ if submitted:
     else:
         selected_ids = [emp_options[k] for k in selected_people]
 
-        # 3.2 insert → dapat job_vacancy_id
-        insert_sql = text("""
-            INSERT INTO talent_benchmarks
-              (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
-            VALUES
-              (:role_name, :job_level, :role_purpose, :selected_ids::jsonb, '{}'::jsonb, now())
-            RETURNING job_vacancy_id;
-        """)
-        with engine.begin() as conn:
-            new_id = conn.execute(insert_sql, {
-                "role_name": role_name,
-                "job_level": job_level,
-                "role_purpose": role_purpose,
-                "selected_ids": json.dumps(selected_ids)
-            }).scalar()
+        # 3.2 insert → dapat job_vacancy_id  (SIMPAN SEBAGAI text[], BUKAN jsonb)
+
+from sqlalchemy import text
+
+# Ambil pure employee_id dari pilihan dropdown
+emp_ids = [emp_options[k] for k in selected_people]
+
+# Bentuk literal array Postgres: {"EMP0001","EMP0002"}
+array_literal = "{" + ",".join(f'"{x}"' for x in emp_ids) + "}"
+
+insert_sql = text("""
+    INSERT INTO talent_benchmarks
+      (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
+    VALUES
+      (:role_name, :job_level, :role_purpose, :selected_ids::text[], '{}'::jsonb, now())
+    RETURNING job_vacancy_id;
+""")
+
+with engine.begin() as conn:
+    new_id = conn.execute(insert_sql, {
+        "role_name": (role_name or "").strip(),
+        "job_level": (job_level or "").strip(),
+        "role_purpose": (role_purpose or "").strip(),
+        "selected_ids": array_literal
+    }).scalar()
 
         st.success(f"Benchmark saved. job_vacancy_id = {new_id}")
 
