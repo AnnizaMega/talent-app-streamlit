@@ -128,11 +128,10 @@ SELECT
   v.tgv_match_rate,
   v.final_match_rate
 FROM v_benchmark_matching v
-LEFT JOIN employees         e   ON e.employee_id    = v.employee_id
+LEFT JOIN employees         e   ON e.employee_id     = v.employee_id
 LEFT JOIN dim_directorates  dir ON dir.directorate_id = e.directorate_id
 LEFT JOIN dim_positions     pos ON pos.position_id    = e.position_id
 LEFT JOIN dim_grades        grd ON grd.grade_id       = e.grade_id
-WHERE v.job_vacancy_id = :bench_id
 ORDER BY v.final_match_rate DESC, v.employee_id
 LIMIT 500;
 """)
