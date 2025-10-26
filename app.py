@@ -83,75 +83,80 @@ if submitted:
     if not role_name or not job_level or not role_purpose or len(selected_people) == 0:
         st.error("Please fill all fields and select at least 1 benchmark employee.")
     else:
-        selected_ids = [emp_options[k] for k in selected_people]
+        # --- build text[] literal for Postgres ---
+        emp_ids = [emp_options[k] for k in selected_people]
+        array_literal = "{" + ",".join(f'"{x}"' for x in emp_ids) + "}"
 
-        # 3.2 insert → dapat job_vacancy_id  (SIMPAN SEBAGAI text[], BUKAN jsonb)
-
-from sqlalchemy import text
-
-# Ambil pure employee_id dari pilihan dropdown
-emp_ids = [emp_options[k] for k in selected_people]
-
-# Bentuk literal array Postgres: {"EMP0001","EMP0002"}
-array_literal = "{" + ",".join(f'"{x}"' for x in emp_ids) + "}"
-
-insert_sql = text("""
-    INSERT INTO talent_benchmarks
-      (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
-    VALUES
-      (:role_name, :job_level, :role_purpose, :selected_ids::text[], '{}'::jsonb, now())
-    RETURNING job_vacancy_id;
-""")
-
-with engine.begin() as conn:
-    new_id = conn.execute(insert_sql, {
-        "role_name": (role_name or "").strip(),
-        "job_level": (job_level or "").strip(),
-        "role_purpose": (role_purpose or "").strip(),
-        "selected_ids": array_literal
-    }).scalar()
-        st.success(f"Benchmark saved. job_vacancy_id = {new_id}")
-
-        # 3.3 jalankan ulang matching untuk benchmark ini
-        sql_rank = text("""
-            SELECT
-                employee_id,
-                fullname,
-                directorate,
-                role,
-                grade,
-                tgv_name,
-                tv_name,
-                baseline_score,
-                user_score,
-                tv_match_rate,
-                tgv_match_rate,
-                final_match_rate
-            FROM v_benchmark_matching
-            WHERE job_vacancy_id = :bench_id
-            ORDER BY final_match_rate DESC, employee_id
-            LIMIT 500;
+        # --- insert benchmark & get id ---
+        insert_sql = text("""
+            INSERT INTO talent_benchmarks
+              (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
+            VALUES
+              (:role_name, :job_level, :role_purpose, :selected_ids::text[], '{}'::jsonb, now())
+            RETURNING job_vacancy_id;
         """)
-        ranked_df = pd.read_sql(sql_rank, engine, params={"bench_id": new_id})
 
-        st.subheader("A) Ranked Talent List (top 50)")
-        top_list = (
-            ranked_df
-            .groupby(["employee_id","fullname","directorate","role","grade"], as_index=False)
-            .agg(final_match_rate=("final_match_rate","max"))
-            .sort_values("final_match_rate", ascending=False)
-        )
-        st.dataframe(top_list.head(50), use_container_width=True)
+        try:
+            with engine.begin() as conn:
+                new_id = conn.execute(
+                    insert_sql,
+                    {
+                        "role_name": (role_name or "").strip(),
+                        "job_level": (job_level or "").strip(),
+                        "role_purpose": (role_purpose or "").strip(),
+                        "selected_ids": array_literal,
+                    },
+                ).scalar()
+        except Exception as e:
+            st.error(f"Insert failed: {e}")
+            st.stop()
+        else:
+            st.success(f"Benchmark saved. job_vacancy_id = {new_id}")
 
-        st.subheader("B) Match-rate distribution (Top 100)")
-        st.bar_chart(top_list.head(100).set_index("employee_id")["final_match_rate"])
+            # --- re-run matching for this benchmark ---
+            sql_rank = text("""
+                SELECT
+                    employee_id,
+                    fullname,
+                    directorate,
+                    role,
+                    grade,
+                    tgv_name,
+                    tv_name,
+                    baseline_score,
+                    user_score,
+                    tv_match_rate,
+                    tgv_match_rate,
+                    final_match_rate
+                FROM v_benchmark_matching
+                WHERE job_vacancy_id = :bench_id
+                ORDER BY final_match_rate DESC, employee_id
+                LIMIT 500;
+            """)
+            ranked_df = pd.read_sql(sql_rank, engine, params={"bench_id": new_id})
 
-        st.subheader("C) Compare a candidate to benchmark (by TV)")
-        if not ranked_df.empty:
-            pick_emp = st.selectbox(
-                "Pick a candidate to inspect",
-                options=ranked_df["employee_id"].unique().tolist()
+            st.subheader("A) Ranked Talent List (top 50)")
+            top_list = (
+                ranked_df.groupby(
+                    ["employee_id", "fullname", "directorate", "role", "grade"],
+                    as_index=False,
+                )
+                .agg(final_match_rate=("final_match_rate", "max"))
+                .sort_values("final_match_rate", ascending=False)
             )
-            cand = ranked_df[ranked_df["employee_id"] == pick_emp]
-            show = cand[["tv_name","baseline_score","user_score","tv_match_rate"]].sort_values("tv_name")
-            st.dataframe(show, use_container_width=True)
+            st.dataframe(top_list.head(50), use_container_width=True)
+
+            st.subheader("B) Match-rate distribution (Top 100)")
+            st.bar_chart(top_list.head(100).set_index("employee_id")["final_match_rate"])
+
+            st.subheader("C) Compare a candidate to benchmark (by TV)")
+            if not ranked_df.empty:
+                pick_emp = st.selectbox(
+                    "Pick a candidate to inspect",
+                    options=ranked_df["employee_id"].unique().tolist(),
+                )
+                cand = ranked_df[ranked_df["employee_id"] == pick_emp]
+                show = cand[
+                    ["tv_name", "baseline_score", "user_score", "tv_match_rate"]
+                ].sort_values("tv_name")
+                st.dataframe(show, use_container_width=True)
