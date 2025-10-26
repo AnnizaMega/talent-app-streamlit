@@ -110,7 +110,6 @@ with engine.begin() as conn:
         "role_purpose": (role_purpose or "").strip(),
         "selected_ids": array_literal
     }).scalar()
-
         st.success(f"Benchmark saved. job_vacancy_id = {new_id}")
 
         # 3.3 jalankan ulang matching untuk benchmark ini
