@@ -83,40 +83,36 @@ if submitted:
     if not role_name or not job_level or not role_purpose or len(selected_people) == 0:
         st.error("Please fill all fields and select at least 1 benchmark employee.")
     else:
-        # --- build text[] literal for Postgres ---
-        emp_ids = [emp_options[k] for k in selected_people]
-        array_literal = "{" + ",".join(f'"{x}"' for x in emp_ids) + "}"
+        # --- Build list for text[] column (NOT JSON) ---
+        selected_ids = [emp_options[k] for k in selected_people]
 
-        # --- insert benchmark & get id ---
-        # 1) keep it as a plain list (DON'T json.dumps)
-selected_ids = [emp_options[k] for k in selected_people]   # ✅ a Python list, e.g. ["EMP001","EMP002"]
+        # --- Insert benchmark and get new job_vacancy_id ---
+        try:
+            insert_sql = text("""
+                INSERT INTO talent_benchmarks
+                  (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
+                VALUES
+                  (:role_name, :job_level, :role_purpose, :selected_ids, '{}'::jsonb, now())
+                RETURNING job_vacancy_id;
+            """)
+            with engine.begin() as conn:
+                new_id = conn.execute(
+                    insert_sql,
+                    {
+                        "role_name": role_name,
+                        "job_level": job_level,
+                        "role_purpose": role_purpose,
+                        "selected_ids": selected_ids,   # Python list -> Postgres text[]
+                    }
+                ).scalar()
 
-insert_sql = text("""
-    INSERT INTO talent_benchmarks
-      (role_name, job_level, role_purpose, selected_talent_ids, weights_config, created_at)
-    VALUES
-      (:role_name, :job_level, :role_purpose, :selected_ids, '{}'::jsonb, now())   -- ✅ no cast, no ::
-    RETURNING job_vacancy_id;
-""")
-
-with engine.begin() as conn:
-    new_id = conn.execute(
-        insert_sql,
-        {
-            "role_name": role_name,
-            "job_level": job_level,
-            "role_purpose": role_purpose,
-            "selected_ids": selected_ids,   # ✅ pass the list directly
-        }
-    ).scalar()
-    
+            st.success(f"Benchmark saved. job_vacancy_id = {new_id}")
         except Exception as e:
             st.error(f"Insert failed: {e}")
             st.stop()
-        else:
-            st.success(f"Benchmark saved. job_vacancy_id = {new_id}")
 
-            # --- re-run matching for this benchmark ---
+        # --- Run matching for this benchmark ---
+        try:
             sql_rank = text("""
                 SELECT
                     employee_id,
@@ -140,10 +136,8 @@ with engine.begin() as conn:
 
             st.subheader("A) Ranked Talent List (top 50)")
             top_list = (
-                ranked_df.groupby(
-                    ["employee_id", "fullname", "directorate", "role", "grade"],
-                    as_index=False,
-                )
+                ranked_df
+                .groupby(["employee_id", "fullname", "directorate", "role", "grade"], as_index=False)
                 .agg(final_match_rate=("final_match_rate", "max"))
                 .sort_values("final_match_rate", ascending=False)
             )
@@ -156,10 +150,11 @@ with engine.begin() as conn:
             if not ranked_df.empty:
                 pick_emp = st.selectbox(
                     "Pick a candidate to inspect",
-                    options=ranked_df["employee_id"].unique().tolist(),
+                    options=ranked_df["employee_id"].unique().tolist()
                 )
                 cand = ranked_df[ranked_df["employee_id"] == pick_emp]
-                show = cand[
-                    ["tv_name", "baseline_score", "user_score", "tv_match_rate"]
-                ].sort_values("tv_name")
+                show = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]].sort_values("tv_name")
                 st.dataframe(show, use_container_width=True)
+        except Exception as e:
+            st.error(f"Ranking query failed: {e}")
+
