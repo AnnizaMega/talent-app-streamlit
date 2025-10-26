@@ -114,24 +114,28 @@ if submitted:
         # --- Run matching for this benchmark ---
         try:
             sql_rank = text("""
-                SELECT
-                    employee_id,
-                    fullname,
-                    directorate,
-                    role,
-                    grade,
-                    tgv_name,
-                    tv_name,
-                    baseline_score,
-                    user_score,
-                    tv_match_rate,
-                    tgv_match_rate,
-                    final_match_rate
-                FROM v_benchmark_matching
-                WHERE job_vacancy_id = :bench_id
-                ORDER BY final_match_rate DESC, employee_id
-                LIMIT 500;
-            """)
+SELECT
+  v.employee_id,
+  e.fullname,
+  dir.name  AS directorate,
+  pos.name  AS role,
+  grd.name  AS grade,
+  v.tgv_name,
+  v.tv_name,
+  v.baseline_score,
+  v.user_score,
+  v.tv_match_rate,
+  v.tgv_match_rate,
+  v.final_match_rate
+FROM v_benchmark_matching v
+LEFT JOIN employees         e   ON e.employee_id    = v.employee_id
+LEFT JOIN dim_directorates  dir ON dir.directorate_id = e.directorate_id
+LEFT JOIN dim_positions     pos ON pos.position_id    = e.position_id
+LEFT JOIN dim_grades        grd ON grd.grade_id       = e.grade_id
+WHERE v.job_vacancy_id = :bench_id
+ORDER BY v.final_match_rate DESC, v.employee_id
+LIMIT 500;
+""")
             ranked_df = pd.read_sql(sql_rank, engine, params={"bench_id": new_id})
 
             st.subheader("A) Ranked Talent List (top 50)")
