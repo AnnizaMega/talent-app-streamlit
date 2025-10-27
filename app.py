@@ -227,157 +227,122 @@ if not ranked_df.empty:
                 cand = ranked_df[ranked_df["employee_id"] == pick_emp]
                 show = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]].sort_values("tv_name")
                 st.dataframe(show, use_container_width=True)
-                # ---------------------------
-# D) AI-Generated Job Profile (with OpenRouter or fallback)
-# ---------------------------
-import os, json, requests
+            # ==== D) AI-Generated Job Profile (with fallback) ====
+import json, requests
 
+st.divider()
 st.subheader("D) AI-Generated Job Profile")
 
-def generate_job_profile(role_name, job_level, role_purpose, tgv_summary, api_key=None, model=None):
-    """
-    Return dict: {requirements, description, competencies}
-    If api_key is None, returns a clean fallback (no API call).
-    """
-    # Fallback (tanpa API)
-    if not api_key:
-        requirements = [
-            "SQL (Window, CTE, analitik), performance basics",
-            "Python/R untuk analisis (pandas/tidyverse), statistik dasar",
-            "BI (Tableau/Power BI/Looker), data modeling dasar (star schema)",
-            "Data storytelling & visual best practices",
-            "Analytical thinking, bias awareness, komunikasi EN & ID"
-        ]
-        description = (
-            f"You will turn business questions into data-driven answers for the {role_name} role "
-            f"(grade {job_level}). Own the analysis lifecycle end-to-end: scoping, shaping clean datasets, "
-            f"building clear dashboards, and crafting narratives that drive decisions."
-        )
-        competencies = [
-            "SQL (Postgres/BigQuery/Snowflake)",
-            "Python (pandas/numpy) or R (tidyverse)",
-            "Tableau/Power BI/Looker; Excel/Sheets",
-            "Git/DBT (nice), Airflow (nice)",
-            "Stakeholder management; bias-aware judgement"
-        ]
-        return {
-            "requirements": requirements,
-            "description": description,
-            "competencies": competencies
-        }
-
-    # Kalau ada API key → panggil OpenRouter
-    endpoint = "https://openrouter.ai/api/v1/chat/completions"
-    model = model or "openrouter/auto"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    sys_prompt = (
-        "You are an expert data hiring partner. Create a concise, practical job profile in JSON with keys: "
-        "requirements (list), description (string), competencies (list). Keep it business-ready and avoid fluff."
-    )
-    user_prompt = f"""
-Role name: {role_name}
-Job level / grade: {job_level}
-Role purpose: {role_purpose}
-
-Observed strengths & gaps by TGV (from current benchmark):
-{tgv_summary}
-
-Constraints:
-- Indonesian/English mix OK, but keep it concise and clear.
-- Make requirements concrete and verifiable (e.g., 'Window functions & CTEs', not 'SQL guru').
-- 5–8 bullets for requirements and 5–8 for competencies is enough.
-Return ONLY valid JSON.
-"""
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.3
-    }
-
-    try:
-        resp = requests.post(endpoint, headers=headers, data=json.dumps(payload), timeout=60)
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        # Coba parse JSON langsung (banyak model mengembalikan JSON murni)
-        data = json.loads(content)
-        return {
-            "requirements": data.get("requirements", []),
-            "description": data.get("description", ""),
-            "competencies": data.get("competencies", [])
-        }
-    except Exception as e:
-        # fallback supaya app tidak putus
-        return {
-            "requirements": [
-                "Advanced SQL (joins, windows, CTE, agg), query tuning basics",
-                "Python/R for analysis & prototyping (pandas / tidyverse)",
-                "BI dashboards (Tableau/Power BI/Looker), metrics hygiene",
-                "Data modeling fundamentals; version control (Git)",
-                "Clear communication & stakeholder management"
-            ],
-            "description": (
-                "Own end-to-end analytics: translate questions into datasets, build clear dashboards, "
-                "and communicate insights that influence decisions."
-            ),
-            "competencies": [
-                "SQL (Postgres/BigQuery/Snowflake)",
-                "Python (pandas) / R (tidyverse)",
-                "Tableau/Power BI/Looker",
-                "Git/DBT (nice to have), Airflow (nice to have)"
-            ]
-        }
-
-# rangkum Strengths & Gaps dari blok sebelumnya (kalau ada ranked_df)
-tgv_summary_text = ""
 try:
-    if 'ranked_df' in locals() and not ranked_df.empty:
-        tgv_summary = (
-            ranked_df
-            .groupby("tgv_name", as_index=False)
-            .agg(avg_tgv_match=("tgv_match_rate", "mean"))
-            .sort_values("avg_tgv_match", ascending=False)
-        )
-        # buat ringkasan singkat
-        top = tgv_summary.head(1)["tgv_name"].values[0] if len(tgv_summary) else "-"
-        bottom = tgv_summary.tail(1)["tgv_name"].values[0] if len(tgv_summary) else "-"
-        tgv_summary_text = f"Top strength: {top}. Improvement needed: {bottom}."
-except Exception:
-    tgv_summary_text = ""
-
-# ambil secret (kalau ada)
-openrouter_key = st.secrets.get("OPENROUTER_API_KEY", None)
-llm_model = st.secrets.get("LLM_MODEL", "openrouter/auto")
-
-with st.spinner("Generating job profile…"):
-    ai = generate_job_profile(
-        role_name=role_name if 'role_name' in locals() else "",
-        job_level=job_level if 'job_level' in locals() else "",
-        role_purpose=role_purpose if 'role_purpose' in locals() else "",
-        tgv_summary=tgv_summary_text,
-        api_key=openrouter_key,
-        model=llm_model
+    # ---- Collect a small strengths/gaps summary from the current ranking df ----
+    tgv_summary = (
+        ranked_df.groupby("tgv_name", as_index=False)
+        .agg(avg_tgv_match=("tgv_match_rate", "mean"))
+        .sort_values("avg_tgv_match", ascending=False)
     )
 
-# Tampilkan hasil
-st.write("**Job description**")
-st.write(ai.get("description", ""))
+    if tgv_summary.empty:
+        st.info("No TGV summary available for this benchmark yet.")
+    else:
+        best = tgv_summary.iloc[0]["tgv_name"]
+        worst = tgv_summary.iloc[-1]["tgv_name"]
 
-colA, colB = st.columns(2)
-with colA:
-    st.write("**Job requirements**")
-    for x in ai.get("requirements", []):
-        st.markdown(f"- {x}")
-with colB:
-    st.write("**Key competencies**")
-    for x in ai.get("competencies", []):
-        st.markdown(f"- {x}")
+        # Always show a minimal fallback so the section is visible
+        st.markdown(
+            f"""
+**Top Strength Area:** `{best}`  
+**Improvement Needed:** `{worst}`  
+_Based on average match rates per TGV across all candidates._
+            """
+        )
+
+        # ---- Optional: call OpenRouter if API key is set ----
+        api_key = st.secrets.get("OPENROUTER_API_KEY", "")
+        model = st.secrets.get("LLM_MODEL", "openrouter/auto")
+
+        if api_key:
+            # Build a compact prompt from the current candidate + summary
+            # Use the candidate selected in Section C
+            cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
+            if cand_rows.empty:
+                st.info("Pick a candidate in section C to generate a tailored profile.")
+            else:
+                # Candidate TVs (top & low) preview for the prompt
+                top_tvs = (
+                    cand_rows.sort_values("tv_match_rate", ascending=False)
+                    .head(5)[["tv_name", "tv_match_rate"]]
+                    .to_dict("records")
+                )
+                low_tvs = (
+                    cand_rows.sort_values("tv_match_rate", ascending=True)
+                    .head(5)[["tv_name", "tv_match_rate"]]
+                    .to_dict("records")
+                )
+
+                prompt = {
+                    "role_name": role_name,
+                    "job_level": job_level,
+                    "role_purpose": role_purpose,
+                    "tgv_best": best,
+                    "tgv_gap": worst,
+                    "candidate_id": pick_emp,
+                    "candidate_top_tvs": top_tvs,
+                    "candidate_low_tvs": low_tvs,
+                }
+
+                with st.spinner("Generating AI job profile…"):
+                    resp = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        data=json.dumps(
+                            {
+                                "model": model,
+                                "messages": [
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "You are an HR analytics copilot. "
+                                            "Write concise, business-friendly bullet points."
+                                        ),
+                                    },
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "Using the JSON below, produce:\n"
+                                            "1) Job purpose (1–2 sentences)\n"
+                                            "2) Key competencies / TGV strengths\n"
+                                            "3) Must-have TVs\n"
+                                            "4) Nice-to-have TVs\n"
+                                            "5) Red flags / gaps\n"
+                                            "6) Suggested development actions\n\n"
+                                            f"JSON:\n{json.dumps(prompt, ensure_ascii=False)}"
+                                        ),
+                                    },
+                                ],
+                                "temperature": 0.3,
+                            }
+                        ),
+                        timeout=60,
+                    )
+                if resp.ok:
+                    content = resp.json()["choices"][0]["message"]["content"]
+                    st.markdown(content)
+                else:
+                    st.warning(
+                        f"AI call failed ({resp.status_code}). Showing fallback summary above."
+                    )
+        else:
+            st.info(
+                "Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation. "
+                "This section is currently showing the fallback summary."
+            )
+
+except Exception as e_d:
+    st.warning(f"AI Profile section skipped due to: {e_d}")
+# ==== End of D) AI-Generated Job Profile ====
         except Exception as e:
             st.error(f"Ranking query failed: {e}")
 
