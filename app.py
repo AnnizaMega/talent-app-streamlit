@@ -215,7 +215,7 @@ if submitted:
             st.error(f"Ranking query failed: {e}")
             # =====================================================================
 # =====================================================================
-# 3C–5) Dashboard Overview (Corporate Layout)
+# 3C–5) Dashboard Overview (Enhanced Layout + Insights)
 # =====================================================================
 
 st.divider()
@@ -227,24 +227,22 @@ latest_bench_id = st.session_state.get("latest_bench_id")
 if ranked_df.empty:
     st.info("No benchmark results loaded yet. Create or re-run a benchmark above.")
 else:
-    col1, col2 = st.columns([1.2, 1])  # kiri lebih lebar
-
     # ===============================================================
-    # 🧩 LEFT COLUMN — Overview (Section A & B)
+    # A & B — Overview Section (Top 10 + Distribution)
     # ===============================================================
-    with col1:
-        st.subheader("A) Top 10 Ranked Candidates")
+    st.subheader("A) Top 10 Ranked Candidates")
+    top_list = (
+        ranked_df
+        .groupby(["employee_id", "fullname", "directorate", "role", "grade"], as_index=False)
+        .agg(final_match_rate=("final_match_rate", "max"))
+        .sort_values("final_match_rate", ascending=False)
+    )
 
-        top_list = (
-            ranked_df
-            .groupby(["employee_id", "fullname", "directorate", "role", "grade"], as_index=False)
-            .agg(final_match_rate=("final_match_rate", "max"))
-            .sort_values("final_match_rate", ascending=False)
-        )
+    colA, colB = st.columns([1.3, 1])
 
-        st.dataframe(top_list.head(10), use_container_width=True, height=380)
+    with colA:
+        st.dataframe(top_list.head(10), use_container_width=True, height=350)
 
-        # Optional CSV download
         csv_bytes = ranked_df.to_csv(index=False).encode("utf-8")
         st.download_button(
             "⬇️ Download full result (CSV)",
@@ -254,94 +252,56 @@ else:
             key="dl_csv_persist",
         )
 
+    with colB:
         st.subheader("B) Match-rate Distribution (Top 100)")
-        top_100 = top_list.head(100)
         st.bar_chart(
-            top_100.set_index("employee_id")["final_match_rate"],
+            top_list.head(100).set_index("employee_id")["final_match_rate"],
             use_container_width=True,
-            height=280,
+            height=300,
         )
 
-    # ===============================================================
-    # 🧭 RIGHT COLUMN — Detail View (Section C & D)
-    # ===============================================================
-    with col2:
-        st.subheader("C) Candidate Detail Comparison")
+    st.divider()
 
-        # Ambil kandidat dari hasil ranking
+    # ===============================================================
+    # C — Candidate Detail + Radar Chart
+    # ===============================================================
+    st.subheader("C) Candidate Detail & TGV Radar")
+    colC, colD = st.columns([1, 1.3])
+
+    with colC:
         emp_list = ranked_df["employee_id"].unique().tolist()
         default_emp = st.session_state.get("pick_emp", emp_list[0] if emp_list else None)
 
         with st.form("compare_candidate_form", clear_on_submit=False):
             pick_emp = st.selectbox(
-                "Pick a candidate to inspect",
+                "Select candidate to inspect",
                 options=emp_list,
                 index=emp_list.index(default_emp) if default_emp in emp_list else 0,
                 key="pick_emp_form",
             )
             view_btn = st.form_submit_button("🔍 View Candidate")
 
-        # Jika tombol ditekan, simpan dan tampilkan
         if view_btn or st.session_state.get("pick_emp"):
             st.session_state["pick_emp"] = pick_emp if view_btn else st.session_state["pick_emp"]
             chosen_emp = st.session_state["pick_emp"]
 
             cand = ranked_df[ranked_df["employee_id"] == chosen_emp]
             if not cand.empty:
-                show = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]] \
-                    .sort_values("tv_name")
-                st.dataframe(show, use_container_width=True, height=300)
-
-                # ===============================================================
-                # 📈 Radar Chart: Candidate vs Benchmark (TGV Level)
-                # ===============================================================
-                import plotly.graph_objects as go
-                try:
-                    cand_tgv = (
-                        ranked_df[ranked_df["employee_id"] == chosen_emp]
-                        .groupby("tgv_name", as_index=False)
-                        .agg(tgv_match_rate=("tgv_match_rate", "mean"))
-                        .sort_values("tgv_name")
-                    )
-
-                    if not cand_tgv.empty:
-                        cand_tgv["benchmark_rate"] = 100
-
-                        fig = go.Figure()
-                        fig.add_trace(
-                            go.Scatterpolar(
-                                r=cand_tgv["tgv_match_rate"],
-                                theta=cand_tgv["tgv_name"],
-                                fill="toself",
-                                name="Candidate Match Rate",
-                                line_color="mediumseagreen",
-                            )
-                        )
-                        fig.add_trace(
-                            go.Scatterpolar(
-                                r=cand_tgv["benchmark_rate"],
-                                theta=cand_tgv["tgv_name"],
-                                fill="toself",
-                                name="Benchmark (100%)",
-                                line_color="royalblue",
-                                line=dict(dash="dot"),
-                            )
-                        )
-                        fig.update_layout(
-                            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
-                            showlegend=True,
-                            height=400,
-                            margin=dict(l=30, r=30, t=40, b=30),
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                # ============= Dynamic color-scale =============
+                def color_scale(value):
+                    if value >= 90:
+                        return "background-color: #28a745; color:white"
+                    elif value >= 70:
+                        return "background-color: #ffc107"
                     else:
-                        st.info("No TGV data available for this candidate.")
-                except Exception as e_plot:
-                    st.warning(f"Radar chart skipped due to: {e_plot}")
+                        return "background-color: #dc3545; color:white"
 
-                # ===============================================================
-                # 📥 CSV download per kandidat
-                # ===============================================================
+                styled = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]] \
+                    .sort_values("tv_name") \
+                    .style.applymap(color_scale, subset=["tv_match_rate"])
+
+                st.dataframe(styled, use_container_width=True, height=350)
+
                 cand_csv = cand.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     "⬇️ Download candidate TVs (CSV)",
@@ -353,115 +313,171 @@ else:
             else:
                 st.warning("No data found for this candidate.")
 
-        # ===============================================================
-        # 🤖 Section D – AI-Generated Job Profile
-        # ===============================================================
-        st.divider()
-        st.subheader("D) AI-Generated Job Profile")
+    with colD:
+        # ================= Radar Chart =================
+        import plotly.graph_objects as go
 
-        try:
-            tgv_summary = (
-                ranked_df.groupby("tgv_name", as_index=False)
-                .agg(avg_tgv_match=("tgv_match_rate", "mean"))
-                .sort_values("avg_tgv_match", ascending=False)
-            )
+        chosen_emp = st.session_state.get("pick_emp")
+        if chosen_emp:
+            try:
+                cand_tgv = (
+                    ranked_df[ranked_df["employee_id"] == chosen_emp]
+                    .groupby("tgv_name", as_index=False)
+                    .agg(tgv_match_rate=("tgv_match_rate", "mean"))
+                    .sort_values("tgv_name")
+                )
 
-            if tgv_summary.empty:
-                st.info("No TGV summary available for this benchmark yet.")
-            else:
-                best = tgv_summary.iloc[0]["tgv_name"]
-                worst = tgv_summary.iloc[-1]["tgv_name"]
+                if not cand_tgv.empty:
+                    cand_tgv["benchmark_rate"] = 100
 
-                st.markdown(
-                    f"""
+                    fig = go.Figure()
+                    fig.add_trace(
+                        go.Scatterpolar(
+                            r=cand_tgv["tgv_match_rate"],
+                            theta=cand_tgv["tgv_name"],
+                            fill="toself",
+                            name="Candidate Match Rate",
+                            line_color="mediumseagreen",
+                            hovertemplate="<b>%{theta}</b><br>Match Rate: %{r:.1f}%<extra></extra>"
+                        )
+                    )
+                    fig.add_trace(
+                        go.Scatterpolar(
+                            r=cand_tgv["benchmark_rate"],
+                            theta=cand_tgv["tgv_name"],
+                            fill="toself",
+                            name="Benchmark (100%)",
+                            line_color="royalblue",
+                            line=dict(dash="dot"),
+                        )
+                    )
+
+                    fig.update_layout(
+                        polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                        showlegend=True,
+                        height=400,
+                        margin=dict(l=30, r=30, t=40, b=30),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # ============ Insight Summary ============
+                    avg_tgv = cand_tgv.set_index("tgv_name")["tgv_match_rate"]
+                    best_tgv = avg_tgv.idxmax()
+                    worst_tgv = avg_tgv.idxmin()
+                    strong = avg_tgv[avg_tgv >= 85].index.tolist()
+                    weak = avg_tgv[avg_tgv <= 70].index.tolist()
+
+                    st.markdown(f"""
+                    **🧠 Insight Summary**
+                    - 🟢 Strength: **{best_tgv}**
+                    - 🔴 Area to Improve: **{worst_tgv}**
+                    - 💬 Strong in: {', '.join(strong) if strong else '—'}
+                    - ⚠️ Needs improvement in: {', '.join(weak) if weak else '—'}
+                    """)
+                else:
+                    st.info("No TGV data available for this candidate.")
+            except Exception as e_plot:
+                st.warning(f"Radar chart skipped due to: {e_plot}")
+        else:
+            st.info("Select a candidate to view radar analysis.")
+
+    # ===============================================================
+    # D — AI Generated Job Profile (Full Width)
+    # ===============================================================
+    st.divider()
+    st.subheader("D) AI-Generated Job Profile")
+
+    try:
+        tgv_summary = (
+            ranked_df.groupby("tgv_name", as_index=False)
+            .agg(avg_tgv_match=("tgv_match_rate", "mean"))
+            .sort_values("avg_tgv_match", ascending=False)
+        )
+
+        if tgv_summary.empty:
+            st.info("No TGV summary available for this benchmark yet.")
+        else:
+            best = tgv_summary.iloc[0]["tgv_name"]
+            worst = tgv_summary.iloc[-1]["tgv_name"]
+
+            st.markdown(
+                f"""
 **Top Strength Area:** `{best}`  
 **Improvement Needed:** `{worst}`  
 _Based on average match rates per TGV across all candidates._
-                    """
-                )
+                """
+            )
 
-                api_key = st.secrets.get("OPENROUTER_API_KEY", "")
-                model = st.secrets.get("LLM_MODEL", "openrouter/auto")
-                pick_emp = st.session_state.get("pick_emp")
+            api_key = st.secrets.get("OPENROUTER_API_KEY", "")
+            model = st.secrets.get("LLM_MODEL", "openrouter/auto")
+            pick_emp = st.session_state.get("pick_emp")
 
-                if api_key and pick_emp:
-                    cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
-                    if not cand_rows.empty:
-                        top_tvs = (
-                            cand_rows.sort_values("tv_match_rate", ascending=False)
-                            .head(5)[["tv_name", "tv_match_rate"]]
-                            .to_dict("records")
+            if api_key and pick_emp:
+                cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
+                if not cand_rows.empty:
+                    top_tvs = (
+                        cand_rows.sort_values("tv_match_rate", ascending=False)
+                        .head(5)[["tv_name", "tv_match_rate"]]
+                        .to_dict("records")
+                    )
+                    low_tvs = (
+                        cand_rows.sort_values("tv_match_rate", ascending=True)
+                        .head(5)[["tv_name", "tv_match_rate"]]
+                        .to_dict("records")
+                    )
+
+                    prompt = {
+                        "job_vacancy_id": latest_bench_id,
+                        "tgv_best": best,
+                        "tgv_gap": worst,
+                        "candidate_id": pick_emp,
+                        "candidate_top_tvs": top_tvs,
+                        "candidate_low_tvs": low_tvs,
+                    }
+
+                    with st.spinner("Generating AI job profile…"):
+                        resp = requests.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            data=json.dumps({
+                                "model": model,
+                                "messages": [
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "You are an HR analytics copilot. "
+                                            "Write concise, business-friendly bullet points."
+                                        ),
+                                    },
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "Using the JSON below, produce:\n"
+                                            "1) Job purpose (1–2 sentences)\n"
+                                            "2) Key competencies / TGV strengths\n"
+                                            "3) Must-have TVs\n"
+                                            "4) Nice-to-have TVs\n"
+                                            "5) Red flags / gaps\n"
+                                            "6) Suggested development actions\n\n"
+                                            f"JSON:\n{json.dumps(prompt, ensure_ascii=False)}"
+                                        ),
+                                    },
+                                ],
+                                "temperature": 0.3,
+                            }),
+                            timeout=60,
                         )
-                        low_tvs = (
-                            cand_rows.sort_values("tv_match_rate", ascending=True)
-                            .head(5)[["tv_name", "tv_match_rate"]]
-                            .to_dict("records")
-                        )
 
-                        prompt = {
-                            "job_vacancy_id": latest_bench_id,
-                            "tgv_best": best,
-                            "tgv_gap": worst,
-                            "candidate_id": pick_emp,
-                            "candidate_top_tvs": top_tvs,
-                            "candidate_low_tvs": low_tvs,
-                        }
-
-                        with st.spinner("Generating AI job profile…"):
-                            resp = requests.post(
-                                "https://openrouter.ai/api/v1/chat/completions",
-                                headers={
-                                    "Authorization": f"Bearer {api_key}",
-                                    "Content-Type": "application/json",
-                                },
-                                data=json.dumps({
-                                    "model": model,
-                                    "messages": [
-                                        {
-                                            "role": "system",
-                                            "content": (
-                                                "You are an HR analytics copilot. "
-                                                "Write concise, business-friendly bullet points."
-                                            ),
-                                        },
-                                        {
-                                            "role": "user",
-                                            "content": (
-                                                "Using the JSON below, produce:\n"
-                                                "1) Job purpose (1–2 sentences)\n"
-                                                "2) Key competencies / TGV strengths\n"
-                                                "3) Must-have TVs\n"
-                                                "4) Nice-to-have TVs\n"
-                                                "5) Red flags / gaps\n"
-                                                "6) Suggested development actions\n\n"
-                                                f"JSON:\n{json.dumps(prompt, ensure_ascii=False)}"
-                                            ),
-                                        },
-                                    ],
-                                    "temperature": 0.3,
-                                }),
-                                timeout=60,
-                            )
-
-                        if resp.ok:
-                            st.markdown(resp.json()["choices"][0]["message"]["content"])
-                        else:
-                            st.warning(
-                                f"AI call failed ({resp.status_code}). Showing fallback summary above."
-                            )
-                elif not api_key:
-                    st.info("Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation.")
-        except Exception as e_d:
-            st.warning(f"AI Profile section skipped due to: {e_d}")
-
-# =====================================================================
-# Debug section
-# =====================================================================
-with st.expander("🔧 Debug session (temporary)"):
-    st.json({
-        "latest_bench_id": st.session_state.get("latest_bench_id"),
-        "latest_ranked_df_rows": int(st.session_state.get("latest_ranked_df", pd.DataFrame()).shape[0]),
-        "pick_emp": st.session_state.get("pick_emp"),
-    })
+                    if resp.ok:
+                        st.markdown(resp.json()["choices"][0]["message"]["content"])
+                    else:
+                        st.warning(f"AI call failed ({resp.status_code}). Showing fallback summary above.")
+            elif not api_key:
+                st.info("Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation.")
+    except Exception as e_d:
+        st.warning(f"AI Profile section skipped due to: {e_d}")
 
 
