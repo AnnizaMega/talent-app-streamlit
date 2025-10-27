@@ -227,116 +227,160 @@ if not ranked_df.empty:
                 cand = ranked_df[ranked_df["employee_id"] == pick_emp]
                 show = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]].sort_values("tv_name")
                 st.dataframe(show, use_container_width=True)
+                # ---------------------------
+# D) AI-Generated Job Profile (with OpenRouter or fallback)
+# ---------------------------
+import os, json, requests
+
+st.subheader("D) AI-Generated Job Profile")
+
+def generate_job_profile(role_name, job_level, role_purpose, tgv_summary, api_key=None, model=None):
+    """
+    Return dict: {requirements, description, competencies}
+    If api_key is None, returns a clean fallback (no API call).
+    """
+    # Fallback (tanpa API)
+    if not api_key:
+        requirements = [
+            "SQL (Window, CTE, analitik), performance basics",
+            "Python/R untuk analisis (pandas/tidyverse), statistik dasar",
+            "BI (Tableau/Power BI/Looker), data modeling dasar (star schema)",
+            "Data storytelling & visual best practices",
+            "Analytical thinking, bias awareness, komunikasi EN & ID"
+        ]
+        description = (
+            f"You will turn business questions into data-driven answers for the {role_name} role "
+            f"(grade {job_level}). Own the analysis lifecycle end-to-end: scoping, shaping clean datasets, "
+            f"building clear dashboards, and crafting narratives that drive decisions."
+        )
+        competencies = [
+            "SQL (Postgres/BigQuery/Snowflake)",
+            "Python (pandas/numpy) or R (tidyverse)",
+            "Tableau/Power BI/Looker; Excel/Sheets",
+            "Git/DBT (nice), Airflow (nice)",
+            "Stakeholder management; bias-aware judgement"
+        ]
+        return {
+            "requirements": requirements,
+            "description": description,
+            "competencies": competencies
+        }
+
+    # Kalau ada API key → panggil OpenRouter
+    endpoint = "https://openrouter.ai/api/v1/chat/completions"
+    model = model or "openrouter/auto"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    sys_prompt = (
+        "You are an expert data hiring partner. Create a concise, practical job profile in JSON with keys: "
+        "requirements (list), description (string), competencies (list). Keep it business-ready and avoid fluff."
+    )
+    user_prompt = f"""
+Role name: {role_name}
+Job level / grade: {job_level}
+Role purpose: {role_purpose}
+
+Observed strengths & gaps by TGV (from current benchmark):
+{tgv_summary}
+
+Constraints:
+- Indonesian/English mix OK, but keep it concise and clear.
+- Make requirements concrete and verifiable (e.g., 'Window functions & CTEs', not 'SQL guru').
+- 5–8 bullets for requirements and 5–8 for competencies is enough.
+Return ONLY valid JSON.
+"""
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.3
+    }
+
+    try:
+        resp = requests.post(endpoint, headers=headers, data=json.dumps(payload), timeout=60)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        # Coba parse JSON langsung (banyak model mengembalikan JSON murni)
+        data = json.loads(content)
+        return {
+            "requirements": data.get("requirements", []),
+            "description": data.get("description", ""),
+            "competencies": data.get("competencies", [])
+        }
+    except Exception as e:
+        # fallback supaya app tidak putus
+        return {
+            "requirements": [
+                "Advanced SQL (joins, windows, CTE, agg), query tuning basics",
+                "Python/R for analysis & prototyping (pandas / tidyverse)",
+                "BI dashboards (Tableau/Power BI/Looker), metrics hygiene",
+                "Data modeling fundamentals; version control (Git)",
+                "Clear communication & stakeholder management"
+            ],
+            "description": (
+                "Own end-to-end analytics: translate questions into datasets, build clear dashboards, "
+                "and communicate insights that influence decisions."
+            ),
+            "competencies": [
+                "SQL (Postgres/BigQuery/Snowflake)",
+                "Python (pandas) / R (tidyverse)",
+                "Tableau/Power BI/Looker",
+                "Git/DBT (nice to have), Airflow (nice to have)"
+            ]
+        }
+
+# rangkum Strengths & Gaps dari blok sebelumnya (kalau ada ranked_df)
+tgv_summary_text = ""
+try:
+    if 'ranked_df' in locals() and not ranked_df.empty:
+        tgv_summary = (
+            ranked_df
+            .groupby("tgv_name", as_index=False)
+            .agg(avg_tgv_match=("tgv_match_rate", "mean"))
+            .sort_values("avg_tgv_match", ascending=False)
+        )
+        # buat ringkasan singkat
+        top = tgv_summary.head(1)["tgv_name"].values[0] if len(tgv_summary) else "-"
+        bottom = tgv_summary.tail(1)["tgv_name"].values[0] if len(tgv_summary) else "-"
+        tgv_summary_text = f"Top strength: {top}. Improvement needed: {bottom}."
+except Exception:
+    tgv_summary_text = ""
+
+# ambil secret (kalau ada)
+openrouter_key = st.secrets.get("OPENROUTER_API_KEY", None)
+llm_model = st.secrets.get("LLM_MODEL", "openrouter/auto")
+
+with st.spinner("Generating job profile…"):
+    ai = generate_job_profile(
+        role_name=role_name if 'role_name' in locals() else "",
+        job_level=job_level if 'job_level' in locals() else "",
+        role_purpose=role_purpose if 'role_purpose' in locals() else "",
+        tgv_summary=tgv_summary_text,
+        api_key=openrouter_key,
+        model=llm_model
+    )
+
+# Tampilkan hasil
+st.write("**Job description**")
+st.write(ai.get("description", ""))
+
+colA, colB = st.columns(2)
+with colA:
+    st.write("**Job requirements**")
+    for x in ai.get("requirements", []):
+        st.markdown(f"- {x}")
+with colB:
+    st.write("**Key competencies**")
+    for x in ai.get("competencies", []):
+        st.markdown(f"- {x}")
         except Exception as e:
             st.error(f"Ranking query failed: {e}")
 
-# =========================
-# D) AI-Generated Job Profile
-# =========================
-st.subheader("D) AI-Generated Job Profile")
 
-# Siapkan ringkasan strengths & gaps dari data (ringkas, agar prompt bersih)
-best_tgv = None
-worst_tgv = None
-try:
-    # pakai ranked_df kalau tak ada filter; kalau kamu pakai base_df, ganti ke base_df
-    tgv_summary = (
-        ranked_df.groupby("tgv_name", as_index=False)
-        .agg(avg_tgv=("tgv_match_rate", "mean"))
-        .sort_values("avg_tgv", ascending=False)
-    )
-    if not tgv_summary.empty:
-        best_tgv = tgv_summary.iloc[0]["tgv_name"]
-        worst_tgv = tgv_summary.iloc[-1]["tgv_name"]
-except Exception:
-    pass
-
-# Konstruksi prompt dari input + data
-prompt = f"""
-You are an assistant that drafts a concise job profile for a vacancy.
-
-Role: {role_name or "-"}
-Level/Grade: {job_level or "-"}
-Purpose (from hiring manager): {role_purpose or "-"}
-
-Benchmark summary (from data):
-- Strongest TGV (avg match): {best_tgv or "n/a"}
-- Most challenging TGV (avg match): {worst_tgv or "n/a"}
-
-Write three sections in English and bullet-friendly format:
-1) Job requirements (8–12 bullets) — be specific (SQL, Python/R, BI tools, statistics, data modeling, visualization, stakeholder communication, bias awareness).
-2) Job description (2–3 short paragraphs) — what the role does and how success is measured.
-3) Key competencies — group by TGV if helpful (Cognitive, Competencies, Personality, Context), 6–10 bullets total.
-
-Keep it crisp and practical for a data-driven organization.
-"""
-
-# Coba pakai LLM jika ada API key, kalau tidak fallback
-ai_text = None
-import os, requests, textwrap
-
-api_key = st.secrets.get("OPENROUTER_API_KEY", None)
-model_name = st.secrets.get("LLM_MODEL", "openrouter/auto")
-
-if api_key:
-    try:
-        with st.spinner("Generating job profile with AI..."):
-            resp = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": "You write succinct, business-ready job profiles."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.4,
-                    "max_tokens": 900,
-                },
-                timeout=60,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            ai_text = data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        st.info(f"AI call failed, using local template. ({e})")
-
-# Fallback template (kalau tanpa API)
-if not ai_text:
-    req = """
-- Advanced SQL (window functions, CTEs), query optimization basics
-- Python or R for analysis (pandas/tidyverse), plotting, stats
-- BI tools (Tableau/Looker/Power BI), data modeling fundamentals
-- Dashboard design & data storytelling for non-technical audiences
-- Version control and reproducible analysis (Git)
-- Solid stakeholder communication; requirement scoping
-- Bias-aware analysis: sampling, survivorship, p-hacking, confirmation bias
-- English & Bahasa; async written comms
-""".strip()
-
-    desc = textwrap.dedent(f"""
-        You will turn business questions into data-driven answers for {role_name or "the team"}.
-        You own analysis end-to-end: clarify context, build datasets, model metrics, and ship dashboards that drive decisions.
-        Success looks like trusted dashboards, clear narratives, and measurable impact on key outcomes.
-
-        You balance technical depth (SQL, Python/R, BI) with product judgment and bias-aware thinking.
-        Partner with stakeholders across functions and present findings in clear, executable language.
-    """).strip()
-
-    comps = f"""
-- Cognitive / Problem Solving — break down ambiguous problems; design sensible metrics
-- Technical Competency — SQL, Python/R, BI; data modeling, reproducibility
-- Communication — crisp writing, structure; tailor to execs and ops
-- Decision Quality — sensitive to bias; pressure-tested recommendations
-- Collaboration — partner mindset; unblock teams
-- Context — adapt to {job_level or "the"} level expectations and timelines
-""".strip()
-
-    ai_text = f"### Job requirements\n{req}\n\n### Job description\n{desc}\n\n### Key competencies\n{comps}"
-
-st.markdown(ai_text)
 
     
