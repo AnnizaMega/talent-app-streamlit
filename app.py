@@ -203,6 +203,17 @@ LIMIT 500;
                 .sort_values("final_match_rate", ascending=False)
             )
             st.dataframe(top_list.head(50), use_container_width=True)
+            
+# --- Optional: CSV Download ---
+if not ranked_df.empty:
+    csv_bytes = ranked_df.to_csv(index=False).encode("utf-8")
+    file_name = f"benchmark_{st.session_state.get('latest_bench_id', new_id)}.csv"
+    st.download_button(
+        "⬇️ Download full result (CSV)",
+        data=csv_bytes,
+        file_name=file_name,
+        mime="text/csv"
+    )
 
             st.subheader("B) Match-rate distribution (Top 100)")
             st.bar_chart(top_list.head(100).set_index("employee_id")["final_match_rate"])
