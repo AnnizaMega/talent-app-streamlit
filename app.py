@@ -230,30 +230,113 @@ if not ranked_df.empty:
         except Exception as e:
             st.error(f"Ranking query failed: {e}")
 
-    # --- D) Summary — Strengths & Gaps by TGV -------------------------------
-st.subheader("D) Summary — Strengths & Gaps by TGV")
+# =========================
+# D) AI-Generated Job Profile
+# =========================
+st.subheader("D) AI-Generated Job Profile")
 
-# Only run if ranked_df exists and has rows
-if "ranked_df" in locals() and not ranked_df.empty:
-    # Build TGV summary table
+# Siapkan ringkasan strengths & gaps dari data (ringkas, agar prompt bersih)
+best_tgv = None
+worst_tgv = None
+try:
+    # pakai ranked_df kalau tak ada filter; kalau kamu pakai base_df, ganti ke base_df
     tgv_summary = (
         ranked_df.groupby("tgv_name", as_index=False)
-        .agg(avg_tgv_match=("tgv_match_rate", "mean"))
-        .sort_values("avg_tgv_match", ascending=False)
-        .reset_index(drop=True)
+        .agg(avg_tgv=("tgv_match_rate", "mean"))
+        .sort_values("avg_tgv", ascending=False)
     )
-
-    st.dataframe(tgv_summary, use_container_width=True)
-
     if not tgv_summary.empty:
-        best  = tgv_summary.loc[0, "tgv_name"]
-        worst = tgv_summary.loc[tgv_summary.index[-1], "tgv_name"]
-        st.markdown(
-            f"""
-            ✅ **Top Strength Area:** {best}  
-            ⚠️ **Improvement Needed:** {worst}  
-            _(Based on average match rates per TGV across all candidates)_
-            """
-        )
-else:
-    st.caption("No ranking data yet — create or re-run a benchmark above.")
+        best_tgv = tgv_summary.iloc[0]["tgv_name"]
+        worst_tgv = tgv_summary.iloc[-1]["tgv_name"]
+except Exception:
+    pass
+
+# Konstruksi prompt dari input + data
+prompt = f"""
+You are an assistant that drafts a concise job profile for a vacancy.
+
+Role: {role_name or "-"}
+Level/Grade: {job_level or "-"}
+Purpose (from hiring manager): {role_purpose or "-"}
+
+Benchmark summary (from data):
+- Strongest TGV (avg match): {best_tgv or "n/a"}
+- Most challenging TGV (avg match): {worst_tgv or "n/a"}
+
+Write three sections in English and bullet-friendly format:
+1) Job requirements (8–12 bullets) — be specific (SQL, Python/R, BI tools, statistics, data modeling, visualization, stakeholder communication, bias awareness).
+2) Job description (2–3 short paragraphs) — what the role does and how success is measured.
+3) Key competencies — group by TGV if helpful (Cognitive, Competencies, Personality, Context), 6–10 bullets total.
+
+Keep it crisp and practical for a data-driven organization.
+"""
+
+# Coba pakai LLM jika ada API key, kalau tidak fallback
+ai_text = None
+import os, requests, textwrap
+
+api_key = st.secrets.get("OPENROUTER_API_KEY", None)
+model_name = st.secrets.get("LLM_MODEL", "openrouter/auto")
+
+if api_key:
+    try:
+        with st.spinner("Generating job profile with AI..."):
+            resp = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": "You write succinct, business-ready job profiles."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.4,
+                    "max_tokens": 900,
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            ai_text = data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        st.info(f"AI call failed, using local template. ({e})")
+
+# Fallback template (kalau tanpa API)
+if not ai_text:
+    req = """
+- Advanced SQL (window functions, CTEs), query optimization basics
+- Python or R for analysis (pandas/tidyverse), plotting, stats
+- BI tools (Tableau/Looker/Power BI), data modeling fundamentals
+- Dashboard design & data storytelling for non-technical audiences
+- Version control and reproducible analysis (Git)
+- Solid stakeholder communication; requirement scoping
+- Bias-aware analysis: sampling, survivorship, p-hacking, confirmation bias
+- English & Bahasa; async written comms
+""".strip()
+
+    desc = textwrap.dedent(f"""
+        You will turn business questions into data-driven answers for {role_name or "the team"}.
+        You own analysis end-to-end: clarify context, build datasets, model metrics, and ship dashboards that drive decisions.
+        Success looks like trusted dashboards, clear narratives, and measurable impact on key outcomes.
+
+        You balance technical depth (SQL, Python/R, BI) with product judgment and bias-aware thinking.
+        Partner with stakeholders across functions and present findings in clear, executable language.
+    """).strip()
+
+    comps = f"""
+- Cognitive / Problem Solving — break down ambiguous problems; design sensible metrics
+- Technical Competency — SQL, Python/R, BI; data modeling, reproducibility
+- Communication — crisp writing, structure; tailor to execs and ops
+- Decision Quality — sensitive to bias; pressure-tested recommendations
+- Collaboration — partner mindset; unblock teams
+- Context — adapt to {job_level or "the"} level expectations and timelines
+""".strip()
+
+    ai_text = f"### Job requirements\n{req}\n\n### Job description\n{desc}\n\n### Key competencies\n{comps}"
+
+st.markdown(ai_text)
+
+    
