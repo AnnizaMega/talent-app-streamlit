@@ -214,10 +214,12 @@ if submitted:
         except Exception as e:
             st.error(f"Ranking query failed: {e}")
             # =====================================================================
-# 3C) Section A & B — Persistent display for latest benchmark results
 # =====================================================================
+# 3C–5) Dashboard Overview (Corporate Layout)
+# =====================================================================
+
 st.divider()
-st.subheader("A) Ranked Talent List (Top 10)")
+st.header("📊 Talent Benchmark Dashboard")
 
 ranked_df = st.session_state.get("latest_ranked_df", pd.DataFrame())
 latest_bench_id = st.session_state.get("latest_bench_id")
@@ -225,150 +227,150 @@ latest_bench_id = st.session_state.get("latest_bench_id")
 if ranked_df.empty:
     st.info("No benchmark results loaded yet. Create or re-run a benchmark above.")
 else:
-    # --- TOP 10 list ---
-    top_list = (
-        ranked_df
-        .groupby(["employee_id", "fullname", "directorate", "role", "grade"], as_index=False)
-        .agg(final_match_rate=("final_match_rate", "max"))
-        .sort_values("final_match_rate", ascending=False)
-    )
-    st.dataframe(top_list.head(10), use_container_width=True)
+    col1, col2 = st.columns([1.2, 1])  # kiri lebih lebar
 
-    # --- Optional CSV download ---
-    csv_bytes = ranked_df.to_csv(index=False).encode("utf-8")
-    file_name = f"benchmark_{latest_bench_id}.csv"
-    st.download_button(
-        "⬇️ Download full result (CSV)",
-        data=csv_bytes,
-        file_name=file_name,
-        mime="text/csv",
-        key="dl_csv_persist",
-    )
+    # ===============================================================
+    # 🧩 LEFT COLUMN — Overview (Section A & B)
+    # ===============================================================
+    with col1:
+        st.subheader("A) Top 10 Ranked Candidates")
 
-    # =====================================================================
-    # B) Match-rate Distribution
-    # =====================================================================
-    st.subheader("B) Match-rate Distribution (Top 100 Candidates)")
-    top_100 = top_list.head(100)
-    st.bar_chart(top_100.set_index("employee_id")["final_match_rate"])
-
-# =====================================================================
-# 4) Section C — Compare a candidate to benchmark (by TV)
-#     Stable rerun + clear session handling
-# =====================================================================
-st.subheader("C) Compare a candidate to benchmark (by TV)")
-ranked_df = st.session_state.get("latest_ranked_df", pd.DataFrame())
-
-if not ranked_df.empty:
-    # Ambil nilai kandidat terakhir (kalau ada)
-    default_emp = st.session_state.get("pick_emp", None)
-    emp_list = ranked_df["employee_id"].unique().tolist()
-
-    # --- Form agar dropdown tidak auto-rerun ---
-    with st.form("compare_candidate_form", clear_on_submit=False):
-        pick_emp = st.selectbox(
-            "Pick a candidate to inspect",
-            options=emp_list,
-            index=emp_list.index(default_emp) if default_emp in emp_list else 0,
-            key="pick_emp_form"
+        top_list = (
+            ranked_df
+            .groupby(["employee_id", "fullname", "directorate", "role", "grade"], as_index=False)
+            .agg(final_match_rate=("final_match_rate", "max"))
+            .sort_values("final_match_rate", ascending=False)
         )
-        view_btn = st.form_submit_button("🔍 View Candidate")
 
-    if view_btn or (default_emp and default_emp in emp_list):
-        # Simpan pilihan ke session_state
-        st.session_state["pick_emp"] = pick_emp if view_btn else default_emp
-        chosen_emp = st.session_state["pick_emp"]
+        st.dataframe(
+            top_list.head(10),
+            use_container_width=True,
+            height=380
+        )
 
-        cand = ranked_df[ranked_df["employee_id"] == chosen_emp]
-        if cand.empty:
-            st.warning("No data found for this candidate.")
-        else:
-            show = cand[["tv_name","baseline_score","user_score","tv_match_rate"]].sort_values("tv_name")
-            st.dataframe(show, use_container_width=True)
+        # Optional CSV download
+        csv_bytes = ranked_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download full result (CSV)",
+            data=csv_bytes,
+            file_name=f"benchmark_{latest_bench_id}.csv",
+            mime="text/csv",
+            key="dl_csv_persist",
+        )
 
-            # CSV download for selected candidate
-            cand_csv = cand.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "⬇️ Download candidate TVs (CSV)",
-                data=cand_csv,
-                file_name=f"candidate_{chosen_emp}_tvs.csv",
-                mime="text/csv",
-                key="dl_csv_cand",
+        st.subheader("B) Match-rate Distribution (Top 100)")
+        top_100 = top_list.head(100)
+        st.bar_chart(
+            top_100.set_index("employee_id")["final_match_rate"],
+            use_container_width=True,
+            height=280,
+        )
+
+    # ===============================================================
+    # 🧭 RIGHT COLUMN — Detail View (Section C & D)
+    # ===============================================================
+    with col2:
+        st.subheader("C) Candidate Detail Comparison")
+
+        # Ambil kandidat dari hasil ranking
+        emp_list = ranked_df["employee_id"].unique().tolist()
+        default_emp = st.session_state.get("pick_emp", emp_list[0] if emp_list else None)
+
+        with st.form("compare_candidate_form", clear_on_submit=False):
+            pick_emp = st.selectbox(
+                "Pick a candidate to inspect",
+                options=emp_list,
+                index=emp_list.index(default_emp) if default_emp in emp_list else 0,
+                key="pick_emp_form",
             )
-else:
-    st.info("Run a benchmark first to load candidate data.")
+            view_btn = st.form_submit_button("🔍 View Candidate")
 
+        # Jika tombol ditekan, simpan dan tampilkan
+        if view_btn or st.session_state.get("pick_emp"):
+            st.session_state["pick_emp"] = pick_emp if view_btn else st.session_state["pick_emp"]
+            chosen_emp = st.session_state["pick_emp"]
 
-# =====================================================================
-# 5) Section D — AI-Generated Job Profile (stable + clear logic)
-# =====================================================================
-st.divider()
-st.subheader("D) AI-Generated Job Profile")
+            cand = ranked_df[ranked_df["employee_id"] == chosen_emp]
+            if not cand.empty:
+                show = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]] \
+                    .sort_values("tv_name")
+                st.dataframe(show, use_container_width=True, height=300)
 
-try:
-    ranked_df = st.session_state.get("latest_ranked_df", pd.DataFrame())
-    latest_bench_id = st.session_state.get("latest_bench_id")
-    pick_emp = st.session_state.get("pick_emp")
+                # CSV download per kandidat
+                cand_csv = cand.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "⬇️ Download candidate TVs (CSV)",
+                    data=cand_csv,
+                    file_name=f"candidate_{chosen_emp}_tvs.csv",
+                    mime="text/csv",
+                    key="dl_csv_cand",
+                )
+            else:
+                st.warning("No data found for this candidate.")
 
-    if ranked_df.empty or not latest_bench_id:
-        st.info("Run a benchmark first.")
-    else:
-        tgv_summary = (
-            ranked_df.groupby("tgv_name", as_index=False)
-            .agg(avg_tgv_match=("tgv_match_rate", "mean"))
-            .sort_values("avg_tgv_match", ascending=False)
-        )
+        # ===============================================================
+        # 🤖 Section D – AI-Generated Job Profile
+        # ===============================================================
+        st.divider()
+        st.subheader("D) AI-Generated Job Profile")
 
-        if tgv_summary.empty:
-            st.info("No TGV summary available for this benchmark yet.")
-        else:
-            best = tgv_summary.iloc[0]["tgv_name"]
-            worst = tgv_summary.iloc[-1]["tgv_name"]
+        try:
+            tgv_summary = (
+                ranked_df.groupby("tgv_name", as_index=False)
+                .agg(avg_tgv_match=("tgv_match_rate", "mean"))
+                .sort_values("avg_tgv_match", ascending=False)
+            )
 
-            st.markdown(
-                f"""
+            if tgv_summary.empty:
+                st.info("No TGV summary available for this benchmark yet.")
+            else:
+                best = tgv_summary.iloc[0]["tgv_name"]
+                worst = tgv_summary.iloc[-1]["tgv_name"]
+
+                st.markdown(
+                    f"""
 **Top Strength Area:** `{best}`  
 **Improvement Needed:** `{worst}`  
 _Based on average match rates per TGV across all candidates._
-                """
-            )
+                    """
+                )
 
-            # --- Optional AI generation ---
-            api_key = st.secrets.get("OPENROUTER_API_KEY", "")
-            model = st.secrets.get("LLM_MODEL", "openrouter/auto")
+                # Optional AI generation
+                api_key = st.secrets.get("OPENROUTER_API_KEY", "")
+                model = st.secrets.get("LLM_MODEL", "openrouter/auto")
+                pick_emp = st.session_state.get("pick_emp")
 
-            if api_key and pick_emp:
-                cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
-                if not cand_rows.empty:
-                    top_tvs = (
-                        cand_rows.sort_values("tv_match_rate", ascending=False)
-                        .head(5)[["tv_name", "tv_match_rate"]]
-                        .to_dict("records")
-                    )
-                    low_tvs = (
-                        cand_rows.sort_values("tv_match_rate", ascending=True)
-                        .head(5)[["tv_name", "tv_match_rate"]]
-                        .to_dict("records")
-                    )
+                if api_key and pick_emp:
+                    cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
+                    if not cand_rows.empty:
+                        top_tvs = (
+                            cand_rows.sort_values("tv_match_rate", ascending=False)
+                            .head(5)[["tv_name", "tv_match_rate"]]
+                            .to_dict("records")
+                        )
+                        low_tvs = (
+                            cand_rows.sort_values("tv_match_rate", ascending=True)
+                            .head(5)[["tv_name", "tv_match_rate"]]
+                            .to_dict("records")
+                        )
 
-                    prompt = {
-                        "job_vacancy_id": latest_bench_id,
-                        "tgv_best": best,
-                        "tgv_gap": worst,
-                        "candidate_id": pick_emp,
-                        "candidate_top_tvs": top_tvs,
-                        "candidate_low_tvs": low_tvs,
-                    }
+                        prompt = {
+                            "job_vacancy_id": latest_bench_id,
+                            "tgv_best": best,
+                            "tgv_gap": worst,
+                            "candidate_id": pick_emp,
+                            "candidate_top_tvs": top_tvs,
+                            "candidate_low_tvs": low_tvs,
+                        }
 
-                    with st.spinner("Generating AI job profile…"):
-                        resp = requests.post(
-                            "https://openrouter.ai/api/v1/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {api_key}",
-                                "Content-Type": "application/json",
-                            },
-                            data=json.dumps(
-                                {
+                        with st.spinner("Generating AI job profile…"):
+                            resp = requests.post(
+                                "https://openrouter.ai/api/v1/chat/completions",
+                                headers={
+                                    "Authorization": f"Bearer {api_key}",
+                                    "Content-Type": "application/json",
+                                },
+                                data=json.dumps({
                                     "model": model,
                                     "messages": [
                                         {
@@ -393,21 +395,23 @@ _Based on average match rates per TGV across all candidates._
                                         },
                                     ],
                                     "temperature": 0.3,
-                                }
-                            ),
-                            timeout=60,
-                        )
-                    if resp.ok:
-                        st.markdown(resp.json()["choices"][0]["message"]["content"])
-                    else:
-                        st.warning(f"AI call failed ({resp.status_code}). Showing fallback summary above.")
-            elif not api_key:
-                st.info("Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation.")
-except Exception as e_d:
-    st.warning(f"AI Profile section skipped due to: {e_d}")
+                                }),
+                                timeout=60,
+                            )
+
+                        if resp.ok:
+                            st.markdown(resp.json()["choices"][0]["message"]["content"])
+                        else:
+                            st.warning(
+                                f"AI call failed ({resp.status_code}). Showing fallback summary above."
+                            )
+                elif not api_key:
+                    st.info("Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation.")
+        except Exception as e_d:
+            st.warning(f"AI Profile section skipped due to: {e_d}")
 
 # =====================================================================
-# Debug — session snapshot
+# Debug section
 # =====================================================================
 with st.expander("🔧 Debug session (temporary)"):
     st.json({
@@ -415,5 +419,4 @@ with st.expander("🔧 Debug session (temporary)"):
         "latest_ranked_df_rows": int(st.session_state.get("latest_ranked_df", pd.DataFrame()).shape[0]),
         "pick_emp": st.session_state.get("pick_emp"),
     })
-
 
