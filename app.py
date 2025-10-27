@@ -381,7 +381,7 @@ else:
         else:
             st.info("Select a candidate to view radar analysis.")
 
-    # ===============================================================
+      # ===============================================================
     # D — AI Generated Job Profile (Full Width)
     # ===============================================================
     st.divider()
@@ -408,81 +408,88 @@ _Based on average match rates per TGV across all candidates._
                 """
             )
 
-api_key = st.secrets.get("OPENROUTER_API_KEY", "")
-model = st.secrets.get("LLM_MODEL", "gpt-4o-mini")  # gunakan model yang pasti valid
+    except Exception as e_summary:
+        st.warning(f"Failed to process TGV summary: {e_summary}")
+        best, worst = None, None  # supaya aman kalau error
+    # ---------------------------------------------------------------
+    # AI text generation
+    # ---------------------------------------------------------------
+    api_key = st.secrets.get("OPENROUTER_API_KEY", "")
+    model = st.secrets.get("LLM_MODEL", "gpt-4o-mini")
 
-if api_key and pick_emp:
-    cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
-    if not cand_rows.empty:
-        top_tvs = (
-            cand_rows.sort_values("tv_match_rate", ascending=False)
-            .head(5)[["tv_name", "tv_match_rate"]]
-            .to_dict("records")
-        )
-        low_tvs = (
-            cand_rows.sort_values("tv_match_rate", ascending=True)
-            .head(5)[["tv_name", "tv_match_rate"]]
-            .to_dict("records")
-        )
+    try:
+        if api_key and pick_emp:
+            cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
+            if not cand_rows.empty:
+                top_tvs = (
+                    cand_rows.sort_values("tv_match_rate", ascending=False)
+                    .head(5)[["tv_name", "tv_match_rate"]]
+                    .to_dict("records")
+                )
+                low_tvs = (
+                    cand_rows.sort_values("tv_match_rate", ascending=True)
+                    .head(5)[["tv_name", "tv_match_rate"]]
+                    .to_dict("records")
+                )
 
-        prompt = {
-            "job_vacancy_id": latest_bench_id,
-            "tgv_best": best,
-            "tgv_gap": worst,
-            "candidate_id": pick_emp,
-            "candidate_top_tvs": top_tvs,
-            "candidate_low_tvs": low_tvs,
-        }
+                prompt = {
+                    "job_vacancy_id": latest_bench_id,
+                    "tgv_best": best,
+                    "tgv_gap": worst,
+                    "candidate_id": pick_emp,
+                    "candidate_top_tvs": top_tvs,
+                    "candidate_low_tvs": low_tvs,
+                }
 
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are an experienced HR analytics assistant who writes structured, "
-                    "business-focused summaries for talent benchmarking."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "Generate a professional job profile using this JSON data. Include:\n"
-                    "1. Job purpose (1–2 sentences)\n"
-                    "2. Key competencies / strengths\n"
-                    "3. Must-have TVs\n"
-                    "4. Development areas\n"
-                    "5. Red flags\n"
-                    "6. Suggested development actions\n\n"
-                    f"Data:\n{json.dumps(prompt, ensure_ascii=False)}"
-                ),
-            },
-        ]
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an experienced HR analytics assistant who writes structured, "
+                            "business-focused summaries for talent benchmarking."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Generate a professional job profile using this JSON data. Include:\n"
+                            "1. Job purpose (1–2 sentences)\n"
+                            "2. Key competencies / strengths\n"
+                            "3. Must-have TVs\n"
+                            "4. Development areas\n"
+                            "5. Red flags\n"
+                            "6. Suggested development actions\n\n"
+                            f"Data:\n{json.dumps(prompt, ensure_ascii=False)}"
+                        ),
+                    },
+                ]
 
-        with st.spinner("Generating AI job profile…"):
-            resp = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "HTTP-Referer": "https://your-app-name.streamlit.app",
-                    "X-Title": "Talent Benchmark App",
-                    "Content-Type": "application/json",
-                },
-                json={  # <-- GANTI dari data= ke json= agar format dikirim valid
-                    "model": model,
-                    "messages": messages,
-                    "temperature": 0.3,
-                },
-                timeout=60,
-            )
+                with st.spinner("Generating AI job profile…"):
+                    resp = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "HTTP-Referer": "https://your-app-name.streamlit.app",
+                            "X-Title": "Talent Benchmark App",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": model,
+                            "messages": messages,
+                            "temperature": 0.3,
+                        },
+                        timeout=60,
+                    )
 
-        if resp.ok:
-            st.markdown(resp.json()["choices"][0]["message"]["content"])
-        else:
-            st.warning(
-                f"AI call failed ({resp.status_code}): {resp.text[:200]}... Showing fallback summary above."
-            )
-            elif not api_key:
-                st.info("Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation.")
+                if resp.ok:
+                    st.markdown(resp.json()["choices"][0]["message"]["content"])
+                else:
+                    st.warning(
+                        f"AI call failed ({resp.status_code}). Showing fallback summary above."
+                    )
+            else:
+                st.info("Select a valid candidate to generate AI profile.")
+        elif not api_key:
+            st.info("💡 Tip: Set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation.")
     except Exception as e_d:
         st.warning(f"AI Profile section skipped due to: {e_d}")
-
-
