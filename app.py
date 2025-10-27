@@ -55,6 +55,63 @@ import json
 from sqlalchemy import text
 
 st.header("3) Create a new Job Benchmark")
+# --- 3A) Re-run an existing benchmark (saved) ---
+st.header("🔎 Re-run an existing benchmark")
+
+recent_bm = pd.read_sql(
+    """
+    SELECT job_vacancy_id, role_name, job_level, created_at
+    FROM talent_benchmarks
+    ORDER BY job_vacancy_id DESC
+    LIMIT 25
+    """,
+    engine,
+)
+if recent_bm.empty:
+    st.info("No saved benchmarks yet. Create one below.")
+else:
+    st.dataframe(recent_bm, use_container_width=True, height=220)
+    pick_id = st.selectbox(
+        "Pick a job_vacancy_id to re-run",
+        recent_bm["job_vacancy_id"].tolist(),
+        index=0,
+        key="pick_existing_bm",
+    )
+
+    if st.button("Run matching for selected benchmark"):
+        try:
+            sql_rank_saved = text("""
+                SELECT
+                  v.employee_id,
+                  e.fullname,
+                  dir.name  AS directorate,
+                  pos.name  AS role,
+                  grd.name  AS grade,
+                  v.tgv_name,
+                  v.tv_name,
+                  v.baseline_score,
+                  v.user_score,
+                  v.tv_match_rate,
+                  v.tgv_match_rate,
+                  v.final_match_rate
+                FROM v_benchmark_matching v
+                LEFT JOIN employees         e   ON e.employee_id      = v.employee_id
+                LEFT JOIN dim_directorates  dir ON dir.directorate_id = e.directorate_id
+                LEFT JOIN dim_positions     pos ON pos.position_id    = e.position_id
+                LEFT JOIN dim_grades        grd ON grd.grade_id       = e.grade_id
+                WHERE v.job_vacancy_id = :bench_id
+                ORDER BY v.final_match_rate DESC, v.employee_id
+                LIMIT 500;
+            """)
+            ranked_df_saved = pd.read_sql(sql_rank_saved, engine, params={"bench_id": pick_id})
+            if ranked_df_saved.empty:
+                st.warning("No results for this benchmark. Ensure selected IDs have data.")
+            else:
+                st.session_state["latest_ranked_df"] = ranked_df_saved
+                st.session_state["latest_bench_id"] = pick_id
+                st.success(f"Loaded benchmark id = {pick_id}")
+        except Exception as e:
+            st.error(f"Failed to load benchmark {pick_id}: {e}")
 
 # 3.1 ambil daftar karyawan untuk opsi benchmark
 employees_df = pd.read_sql(
