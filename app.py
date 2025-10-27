@@ -350,8 +350,6 @@ try:
         st.info("No TGV data available for this candidate.")
 except Exception as e_plot:
     st.warning(f"Radar chart skipped due to: {e_plot}")
-
-                
                 # CSV download per kandidat
                 cand_csv = cand.to_csv(index=False).encode("utf-8")
                 st.download_button(
