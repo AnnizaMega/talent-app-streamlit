@@ -229,3 +229,24 @@ if not ranked_df.empty:
                 st.dataframe(show, use_container_width=True)
         except Exception as e:
             st.error(f"Ranking query failed: {e}")
+
+    # --- D) Summary: Strengths & Gaps by TGV ---
+    st.subheader("D) Summary — Strengths & Gaps by TGV")
+
+    if not ranked_df.empty:
+        tgv_summary = (
+            ranked_df.groupby("tgv_name", as_index=False)
+            .agg(avg_tgv_match=("tgv_match_rate", "mean"))
+            .sort_values("avg_tgv_match", ascending=False)
+        )
+        st.dataframe(tgv_summary, use_container_width=True)
+
+        best = tgv_summary.head(1)["tgv_name"].values[0]
+        worst = tgv_summary.tail(1)["tgv_name"].values[0]
+        st.markdown(
+            f"""
+            ✅ **Top Strength Area:** {best}  
+            ⚠️ **Improvement Needed:** {worst}  
+            _(Based on average match rates per TGV across all candidates)_
+            """
+        )
