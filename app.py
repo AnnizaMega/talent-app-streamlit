@@ -28,7 +28,11 @@ def get_engine():
     return create_engine(engine_url)
 
 engine = get_engine()
-
+# --- Persisted state so Section C survives reruns ---
+if "latest_ranked_df" not in st.session_state:
+    st.session_state["latest_ranked_df"] = pd.DataFrame()
+if "latest_bench_id" not in st.session_state:
+    st.session_state["latest_bench_id"] = None
 # -----------------------------
 # 1) Connectivity check
 # -----------------------------
