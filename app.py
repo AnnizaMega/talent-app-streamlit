@@ -230,19 +230,24 @@ if not ranked_df.empty:
         except Exception as e:
             st.error(f"Ranking query failed: {e}")
 
-    # --- D) Summary: Strengths & Gaps by TGV ---
-    st.subheader("D) Summary — Strengths & Gaps by TGV")
+    # --- D) Summary — Strengths & Gaps by TGV -------------------------------
+st.subheader("D) Summary — Strengths & Gaps by TGV")
 
-    if not ranked_df.empty:
-        tgv_summary = (
-            ranked_df.groupby("tgv_name", as_index=False)
-            .agg(avg_tgv_match=("tgv_match_rate", "mean"))
-            .sort_values("avg_tgv_match", ascending=False)
-        )
-        st.dataframe(tgv_summary, use_container_width=True)
+# Only run if ranked_df exists and has rows
+if "ranked_df" in locals() and not ranked_df.empty:
+    # Build TGV summary table
+    tgv_summary = (
+        ranked_df.groupby("tgv_name", as_index=False)
+        .agg(avg_tgv_match=("tgv_match_rate", "mean"))
+        .sort_values("avg_tgv_match", ascending=False)
+        .reset_index(drop=True)
+    )
 
-        best = tgv_summary.head(1)["tgv_name"].values[0]
-        worst = tgv_summary.tail(1)["tgv_name"].values[0]
+    st.dataframe(tgv_summary, use_container_width=True)
+
+    if not tgv_summary.empty:
+        best  = tgv_summary.loc[0, "tgv_name"]
+        worst = tgv_summary.loc[tgv_summary.index[-1], "tgv_name"]
         st.markdown(
             f"""
             ✅ **Top Strength Area:** {best}  
@@ -250,3 +255,5 @@ if not ranked_df.empty:
             _(Based on average match rates per TGV across all candidates)_
             """
         )
+else:
+    st.caption("No ranking data yet — create or re-run a benchmark above.")
