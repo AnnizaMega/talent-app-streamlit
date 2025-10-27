@@ -213,6 +213,44 @@ if submitted:
 
         except Exception as e:
             st.error(f"Ranking query failed: {e}")
+            # =====================================================================
+# 3C) Section A & B — Persistent display for latest benchmark results
+# =====================================================================
+st.divider()
+st.subheader("A) Ranked Talent List (Top 10)")
+
+ranked_df = st.session_state.get("latest_ranked_df", pd.DataFrame())
+latest_bench_id = st.session_state.get("latest_bench_id")
+
+if ranked_df.empty:
+    st.info("No benchmark results loaded yet. Create or re-run a benchmark above.")
+else:
+    # --- TOP 10 list ---
+    top_list = (
+        ranked_df
+        .groupby(["employee_id", "fullname", "directorate", "role", "grade"], as_index=False)
+        .agg(final_match_rate=("final_match_rate", "max"))
+        .sort_values("final_match_rate", ascending=False)
+    )
+    st.dataframe(top_list.head(10), use_container_width=True)
+
+    # --- Optional CSV download ---
+    csv_bytes = ranked_df.to_csv(index=False).encode("utf-8")
+    file_name = f"benchmark_{latest_bench_id}.csv"
+    st.download_button(
+        "⬇️ Download full result (CSV)",
+        data=csv_bytes,
+        file_name=file_name,
+        mime="text/csv",
+        key="dl_csv_persist",
+    )
+
+    # =====================================================================
+    # B) Match-rate Distribution
+    # =====================================================================
+    st.subheader("B) Match-rate Distribution (Top 100 Candidates)")
+    top_100 = top_list.head(100)
+    st.bar_chart(top_100.set_index("employee_id")["final_match_rate"])
 
 # =====================================================================
 # 4) Section C — Compare a candidate to benchmark (by TV)
