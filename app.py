@@ -224,6 +224,7 @@ if not ranked_df.empty:
         options=ranked_df["employee_id"].unique().tolist(),
         key="pick_emp",  # stable key
     )
+    st.session_state["pick_emp"] = pick_emp  # <- tambahan aman
     cand = ranked_df[ranked_df["employee_id"] == pick_emp]
     show = cand[["tv_name","baseline_score","user_score","tv_match_rate"]].sort_values("tv_name")
     st.dataframe(show, use_container_width=True)
@@ -352,3 +353,13 @@ _Based on average match rates per TGV across all candidates._
                 )
 except Exception as e_d:
     st.warning(f"AI Profile section skipped due to: {e_d}")
+    # =====================================================================
+# Debug (temporary) — lihat isi session_state
+# =====================================================================
+with st.expander("🔧 Debug session (temporary)"):
+    st.json({
+        "latest_bench_id": st.session_state.get("latest_bench_id"),
+        "latest_ranked_df_rows": int(st.session_state.get("latest_ranked_df", pd.DataFrame()).shape[0]),
+        "pick_emp": st.session_state.get("pick_emp"),
+    })
+
