@@ -242,11 +242,7 @@ else:
             .sort_values("final_match_rate", ascending=False)
         )
 
-        st.dataframe(
-            top_list.head(10),
-            use_container_width=True,
-            height=380
-        )
+        st.dataframe(top_list.head(10), use_container_width=True, height=380)
 
         # Optional CSV download
         csv_bytes = ranked_df.to_csv(index=False).encode("utf-8")
@@ -295,62 +291,57 @@ else:
                 show = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]] \
                     .sort_values("tv_name")
                 st.dataframe(show, use_container_width=True, height=300)
-# ===============================================================
-# 📈 Radar Chart: Candidate vs Benchmark (TGV Level)
-# ===============================================================
-import plotly.graph_objects as go
 
-try:
-    # Agregasi rata-rata match rate per TGV untuk kandidat terpilih
-    cand_tgv = (
-        ranked_df[ranked_df["employee_id"] == chosen_emp]
-        .groupby("tgv_name", as_index=False)
-        .agg(tgv_match_rate=("tgv_match_rate", "mean"))
-        .sort_values("tgv_name")
-    )
+                # ===============================================================
+                # 📈 Radar Chart: Candidate vs Benchmark (TGV Level)
+                # ===============================================================
+                import plotly.graph_objects as go
+                try:
+                    cand_tgv = (
+                        ranked_df[ranked_df["employee_id"] == chosen_emp]
+                        .groupby("tgv_name", as_index=False)
+                        .agg(tgv_match_rate=("tgv_match_rate", "mean"))
+                        .sort_values("tgv_name")
+                    )
 
-    if not cand_tgv.empty:
-        # Pastikan benchmark = 100% baseline untuk perbandingan
-        cand_tgv["benchmark_rate"] = 100
+                    if not cand_tgv.empty:
+                        cand_tgv["benchmark_rate"] = 100
 
-        # Radar chart menggunakan Plotly
-        fig = go.Figure()
+                        fig = go.Figure()
+                        fig.add_trace(
+                            go.Scatterpolar(
+                                r=cand_tgv["tgv_match_rate"],
+                                theta=cand_tgv["tgv_name"],
+                                fill="toself",
+                                name="Candidate Match Rate",
+                                line_color="mediumseagreen",
+                            )
+                        )
+                        fig.add_trace(
+                            go.Scatterpolar(
+                                r=cand_tgv["benchmark_rate"],
+                                theta=cand_tgv["tgv_name"],
+                                fill="toself",
+                                name="Benchmark (100%)",
+                                line_color="royalblue",
+                                line=dict(dash="dot"),
+                            )
+                        )
+                        fig.update_layout(
+                            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                            showlegend=True,
+                            height=400,
+                            margin=dict(l=30, r=30, t=40, b=30),
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No TGV data available for this candidate.")
+                except Exception as e_plot:
+                    st.warning(f"Radar chart skipped due to: {e_plot}")
 
-        fig.add_trace(
-            go.Scatterpolar(
-                r=cand_tgv["tgv_match_rate"],
-                theta=cand_tgv["tgv_name"],
-                fill="toself",
-                name="Candidate Match Rate",
-                line_color="mediumseagreen",
-            )
-        )
-        fig.add_trace(
-            go.Scatterpolar(
-                r=cand_tgv["benchmark_rate"],
-                theta=cand_tgv["tgv_name"],
-                fill="toself",
-                name="Benchmark (100%)",
-                line_color="royalblue",
-                line=dict(dash="dot"),
-            )
-        )
-
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0, 100]),
-            ),
-            showlegend=True,
-            height=400,
-            margin=dict(l=30, r=30, t=40, b=30),
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No TGV data available for this candidate.")
-except Exception as e_plot:
-    st.warning(f"Radar chart skipped due to: {e_plot}")
-                # CSV download per kandidat
+                # ===============================================================
+                # 📥 CSV download per kandidat
+                # ===============================================================
                 cand_csv = cand.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     "⬇️ Download candidate TVs (CSV)",
@@ -389,7 +380,6 @@ _Based on average match rates per TGV across all candidates._
                     """
                 )
 
-                # Optional AI generation
                 api_key = st.secrets.get("OPENROUTER_API_KEY", "")
                 model = st.secrets.get("LLM_MODEL", "openrouter/auto")
                 pick_emp = st.session_state.get("pick_emp")
@@ -473,4 +463,5 @@ with st.expander("🔧 Debug session (temporary)"):
         "latest_ranked_df_rows": int(st.session_state.get("latest_ranked_df", pd.DataFrame()).shape[0]),
         "pick_emp": st.session_state.get("pick_emp"),
     })
+
 
