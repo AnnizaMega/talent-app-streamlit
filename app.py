@@ -465,21 +465,24 @@ _Based on average match rates per TGV across all candidates._
                 ]
 
                 with st.spinner("Generating AI job profile…"):
-                    resp = requests.post(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {api_key}",
-                            "HTTP-Referer": "https://your-app-name.streamlit.app",
-                            "X-Title": "Talent Benchmark App",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": model,
-                            "messages": messages,
-                            "temperature": 0.3,
-                        },
-                        timeout=60,
-                    )
+                   resp = requests.post(
+    "https://openrouter.ai/api/v1/chat/completions",
+    headers={
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://your-app-name.streamlit.app",
+        "X-Title": "Talent Benchmark App",
+        "Content-Type": "application/json",
+    },
+    json={
+        # ⚙️ gunakan model yang pasti ada
+        "model": "openai/gpt-4o-mini",
+        "messages": messages,
+        "temperature": 0.4,
+        "max_tokens": 600,
+        "provider": {"order": ["OpenAI"]},
+    },
+    timeout=60,
+)
 
                 if resp.ok:
                     st.markdown(resp.json()["choices"][0]["message"]["content"])
