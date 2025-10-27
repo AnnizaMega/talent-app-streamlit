@@ -216,42 +216,63 @@ if submitted:
 
 # =====================================================================
 # 4) Section C — Compare a candidate to benchmark (by TV)
-#     (Stable across reruns via session_state)
+#     Stable rerun + clear session handling
 # =====================================================================
 st.subheader("C) Compare a candidate to benchmark (by TV)")
 ranked_df = st.session_state.get("latest_ranked_df", pd.DataFrame())
-if not ranked_df.empty:
-    pick_emp = st.selectbox(
-        "Pick a candidate to inspect",
-        options=ranked_df["employee_id"].unique().tolist(),
-        key="pick_emp",  # stable key
-    )
-    st.session_state["pick_emp"] = pick_emp  # <- tambahan aman
-    cand = ranked_df[ranked_df["employee_id"] == pick_emp]
-    show = cand[["tv_name","baseline_score","user_score","tv_match_rate"]].sort_values("tv_name")
-    st.dataframe(show, use_container_width=True)
 
-    # CSV for the selected candidate
-    cand_csv = cand.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download candidate TVs (CSV)",
-        data=cand_csv,
-        file_name=f"candidate_{pick_emp}_tvs.csv",
-        mime="text/csv",
-        key="dl_csv_cand",
-    )
+if not ranked_df.empty:
+    # Ambil nilai kandidat terakhir (kalau ada)
+    default_emp = st.session_state.get("pick_emp", None)
+    emp_list = ranked_df["employee_id"].unique().tolist()
+
+    # --- Form agar dropdown tidak auto-rerun ---
+    with st.form("compare_candidate_form", clear_on_submit=False):
+        pick_emp = st.selectbox(
+            "Pick a candidate to inspect",
+            options=emp_list,
+            index=emp_list.index(default_emp) if default_emp in emp_list else 0,
+            key="pick_emp_form"
+        )
+        view_btn = st.form_submit_button("🔍 View Candidate")
+
+    if view_btn or (default_emp and default_emp in emp_list):
+        # Simpan pilihan ke session_state
+        st.session_state["pick_emp"] = pick_emp if view_btn else default_emp
+        chosen_emp = st.session_state["pick_emp"]
+
+        cand = ranked_df[ranked_df["employee_id"] == chosen_emp]
+        if cand.empty:
+            st.warning("No data found for this candidate.")
+        else:
+            show = cand[["tv_name","baseline_score","user_score","tv_match_rate"]].sort_values("tv_name")
+            st.dataframe(show, use_container_width=True)
+
+            # CSV download for selected candidate
+            cand_csv = cand.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "⬇️ Download candidate TVs (CSV)",
+                data=cand_csv,
+                file_name=f"candidate_{chosen_emp}_tvs.csv",
+                mime="text/csv",
+                key="dl_csv_cand",
+            )
 else:
     st.info("Run a benchmark first to load candidate data.")
 
+
 # =====================================================================
-# 5) Section D — AI-Generated Job Profile (fallback if no API key)
+# 5) Section D — AI-Generated Job Profile (stable + clear logic)
 # =====================================================================
 st.divider()
 st.subheader("D) AI-Generated Job Profile")
 
 try:
     ranked_df = st.session_state.get("latest_ranked_df", pd.DataFrame())
-    if ranked_df.empty:
+    latest_bench_id = st.session_state.get("latest_bench_id")
+    pick_emp = st.session_state.get("pick_emp")
+
+    if ranked_df.empty or not latest_bench_id:
         st.info("Run a benchmark first.")
     else:
         tgv_summary = (
@@ -263,10 +284,9 @@ try:
         if tgv_summary.empty:
             st.info("No TGV summary available for this benchmark yet.")
         else:
-            best  = tgv_summary.iloc[0]["tgv_name"]
+            best = tgv_summary.iloc[0]["tgv_name"]
             worst = tgv_summary.iloc[-1]["tgv_name"]
 
-            # Always show a minimal fallback so the section is visible
             st.markdown(
                 f"""
 **Top Strength Area:** `{best}`  
@@ -275,12 +295,10 @@ _Based on average match rates per TGV across all candidates._
                 """
             )
 
-            # Optional: call OpenRouter
+            # --- Optional AI generation ---
             api_key = st.secrets.get("OPENROUTER_API_KEY", "")
-            model   = st.secrets.get("LLM_MODEL", "openrouter/auto")
+            model = st.secrets.get("LLM_MODEL", "openrouter/auto")
 
-            # Use selected candidate (if any)
-            pick_emp = st.session_state.get("pick_emp", None)
             if api_key and pick_emp:
                 cand_rows = ranked_df[ranked_df["employee_id"] == pick_emp]
                 if not cand_rows.empty:
@@ -296,7 +314,7 @@ _Based on average match rates per TGV across all candidates._
                     )
 
                     prompt = {
-                        "job_vacancy_id": st.session_state.get("latest_bench_id"),
+                        "job_vacancy_id": latest_bench_id,
                         "tgv_best": best,
                         "tgv_gap": worst,
                         "candidate_id": pick_emp,
@@ -342,21 +360,16 @@ _Based on average match rates per TGV across all candidates._
                             timeout=60,
                         )
                     if resp.ok:
-                        content = resp.json()["choices"][0]["message"]["content"]
-                        st.markdown(content)
+                        st.markdown(resp.json()["choices"][0]["message"]["content"])
                     else:
-                        st.warning(
-                            f"AI call failed ({resp.status_code}). Showing fallback summary above."
-                        )
+                        st.warning(f"AI call failed ({resp.status_code}). Showing fallback summary above.")
             elif not api_key:
-                st.info(
-                    "Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation. "
-                    "This section is currently showing the fallback summary."
-                )
+                st.info("Tip: set `OPENROUTER_API_KEY` in Streamlit Secrets to enable AI generation.")
 except Exception as e_d:
     st.warning(f"AI Profile section skipped due to: {e_d}")
-    # =====================================================================
-# Debug (temporary) — lihat isi session_state
+
+# =====================================================================
+# Debug — session snapshot
 # =====================================================================
 with st.expander("🔧 Debug session (temporary)"):
     st.json({
@@ -364,4 +377,5 @@ with st.expander("🔧 Debug session (temporary)"):
         "latest_ranked_df_rows": int(st.session_state.get("latest_ranked_df", pd.DataFrame()).shape[0]),
         "pick_emp": st.session_state.get("pick_emp"),
     })
+
 
