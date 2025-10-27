@@ -194,7 +194,10 @@ ORDER BY v.final_match_rate DESC, v.employee_id
 LIMIT 500;
 """)
             ranked_df = pd.read_sql(sql_rank, engine, params={"bench_id": new_id})
-
+        # ✅ Persist result across reruns
+        st.session_state["latest_ranked_df"] = ranked_df
+        st.session_state["latest_bench_id"] = new_id
+            
             st.subheader("A) Ranked Talent List (top 50)")
             top_list = (
                 ranked_df
@@ -219,14 +222,20 @@ if not ranked_df.empty:
             st.bar_chart(top_list.head(100).set_index("employee_id")["final_match_rate"])
 
             st.subheader("C) Compare a candidate to benchmark (by TV)")
-            if not ranked_df.empty:
-                pick_emp = st.selectbox(
-                    "Pick a candidate to inspect",
-                    options=ranked_df["employee_id"].unique().tolist()
-                )
-                cand = ranked_df[ranked_df["employee_id"] == pick_emp]
-                show = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]].sort_values("tv_name")
-                st.dataframe(show, use_container_width=True)
+
+ranked_df = st.session_state.get("latest_ranked_df", pd.DataFrame())
+
+if not ranked_df.empty:
+    pick_emp = st.selectbox(
+        "Pick a candidate to inspect",
+        options=ranked_df["employee_id"].unique().tolist(),
+        key="pick_emp"  # ✅ stabil di rerun
+    )
+    cand = ranked_df[ranked_df["employee_id"] == pick_emp]
+    show = cand[["tv_name","baseline_score","user_score","tv_match_rate"]].sort_values("tv_name")
+    st.dataframe(show, use_container_width=True)
+else:
+    st.info("Run a benchmark first to load candidate data.")
             # ==== D) AI-Generated Job Profile (with fallback) ====
 import json, requests
 
