@@ -2,6 +2,8 @@ import json
 import requests
 import pandas as pd
 import streamlit as st
+import os
+os.environ["STREAMLIT_WATCH_FILE_SYSTEM"] = "false"
 from sqlalchemy import create_engine, text
 
 # -----------------------------
