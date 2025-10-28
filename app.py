@@ -193,9 +193,7 @@ if submitted:
                 .agg(final_match_rate=("final_match_rate", "max"))
                 .sort_values("final_match_rate", ascending=False)
             )
-            top_list_view = top_list.copy()
-        top_list_view["final_match_rate"] = top_list_view["final_match_rate"].round(2)
-        st.dataframe(top_list_view.head(50), use_container_width=True)
+            st.dataframe(top_list.head(50), use_container_width=True)
 
             # Optional CSV download
             if not ranked_df.empty:
@@ -243,10 +241,7 @@ else:
     colA, colB = st.columns([1.3, 1])
 
     with colA:
-        top_list_view = top_list.copy()
-        top_list_view["final_match_rate"] = top_list_view["final_match_rate"].round(2)
-        
-        st.dataframe(top_list_view.head(10), use_container_width=True, height=350)
+        st.dataframe(top_list.head(10), use_container_width=True, height=350)
 
         csv_bytes = ranked_df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -301,17 +296,9 @@ else:
                     else:
                         return "background-color: #dc3545; color:white"
 
-               styled = (
-    cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]]
-      .sort_values("tv_name")
-      .style
-      .format({  # 👉 format 2 desimal
-          "baseline_score": "{:.2f}",
-          "user_score": "{:.2f}",
-          "tv_match_rate": "{:.2f}",
-      })
-      .applymap(color_scale, subset=["tv_match_rate"])
-)
+                styled = cand[["tv_name", "baseline_score", "user_score", "tv_match_rate"]] \
+                    .sort_values("tv_name") \
+                    .style.applymap(color_scale, subset=["tv_match_rate"])
 
                 st.dataframe(styled, use_container_width=True, height=350)
 
