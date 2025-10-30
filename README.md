@@ -238,7 +238,7 @@ requests>=2.31
 
 ## License
 
-MIT (update if your org requires a different license)
+MIT 
 
 ---
 
