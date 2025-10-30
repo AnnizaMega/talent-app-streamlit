@@ -1,7 +1,3 @@
-Here’s a clean, copy-pasteable **README.md** for your repo. It documents what the app does, how to run it locally, how to deploy on Streamlit Cloud, required secrets, and common fixes.
-
----
-
 # Talent Match Intelligence (Streamlit + Postgres + OpenRouter)
 
 An interactive app for **benchmark-based talent matching**.
